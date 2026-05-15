@@ -1,0 +1,84 @@
+# ------------------------------------------------------------------ #
+# .dockerignore                                                        #
+# ------------------------------------------------------------------ #
+# Controls what gets sent to the Docker daemon as the build context.
+#
+# Why this matters:
+#   Without this file, `docker build .` sends EVERYTHING in the directory
+#   to the daemon — including your .venv (500MB+), .git history, model
+#   cache, test fixtures, and any .env files with secrets.
+#
+#   Impact: build context upload goes from ~50MB to ~2GB+ and your
+#   secrets could end up in an image layer.
+#
+# Rule of thumb: only include what the running container needs.
+# The Dockerfile COPYs explicitly — this file just stops accidental inclusion.
+
+# ------------------------------------------------------------------ #
+# Python                                                               #
+# ------------------------------------------------------------------ #
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.Python
+**/.pytest_cache
+**/*.egg-info
+**/dist
+**/build
+**/.eggs
+
+# Virtual environments — huge and rebuilt inside the container anyway
+.venv
+venv
+env
+ENV
+
+# ------------------------------------------------------------------ #
+# Project artifacts                                                    #
+# ------------------------------------------------------------------ #
+# HuggingFace cache — model is downloaded at BUILD TIME inside the
+# container, not copied from host. Never copy host model cache.
+/tmp/hf_cache
+.cache
+
+# Test and dev files — not needed at runtime
+tests/
+scripts/
+training/
+
+# CI/CD configuration — not needed at runtime
+.github/
+
+# ------------------------------------------------------------------ #
+# Secrets and local config                                             #
+# ------------------------------------------------------------------ #
+# CRITICAL: .env files must never enter the image.
+# Secrets are injected at runtime via environment variables on Render.
+.env
+.env.*
+!.env.example   # .env.example is safe to include (no real secrets)
+
+# ------------------------------------------------------------------ #
+# VCS                                                                  #
+# ------------------------------------------------------------------ #
+.git
+.gitignore
+.gitattributes
+
+# ------------------------------------------------------------------ #
+# Editor and OS                                                        #
+# ------------------------------------------------------------------ #
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ------------------------------------------------------------------ #
+# Documentation                                                        #
+# ------------------------------------------------------------------ #
+README.md
+docs/
+*.md

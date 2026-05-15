@@ -1,0 +1,142 @@
+# ================================================================== #
+# docker-compose.yml                                                   #
+# Local development stack: app + Redis + PostgreSQL                   #
+# ================================================================== #
+#
+# Usage:
+#   docker compose up --build          # First run (builds image, starts all)
+#   docker compose up                  # Subsequent runs (uses cached image)
+#   docker compose up redis postgres   # Start only dependencies (for local uvicorn dev)
+#   docker compose down -v             # Stop and remove volumes (clean slate)
+#   docker compose logs -f app         # Tail app logs
+#
+# Why run `docker compose up redis postgres` separately?
+#   During active development, you want to restart the app fast —
+#   not rebuild the Docker image. Run the deps in compose, run uvicorn
+#   locally with `uvicorn app.main:app --reload`. Best of both worlds.
+
+version: "3.9"
+
+services:
+
+  # ================================================================ #
+  # Application                                                        #
+  # ================================================================ #
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime       # Build only up to the runtime stage
+      args:
+        MODEL_NAME: ${MODEL_NAME:-distilbert-base-uncased-finetuned-sst-2-english}
+    image: sentiment-service:local
+    container_name: sentiment-app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.example        # Safe defaults. Override with actual .env locally.
+    environment:
+      # Override specific values for the compose network
+      # Service names are DNS-resolvable within the compose network
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/sentiment_logs
+      ENVIRONMENT: development
+      LOG_LEVEL: DEBUG
+      CACHE_ENABLED: "true"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    # Bind mount the app code for local development iteration.
+    # Changes to app/ are reflected immediately without rebuilding.
+    # Note: model weights and deps still come from the built image.
+    volumes:
+      - ./app:/app/app:ro   # :ro = read-only inside container (good practice)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ready"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s    # Model load grace period
+      retries: 3
+    restart: unless-stopped
+
+  # ================================================================ #
+  # Redis — Feature Store / Prediction Cache                          #
+  # ================================================================ #
+  redis:
+    image: redis:7-alpine
+    container_name: sentiment-redis
+    ports:
+      - "6379:6379"   # Exposed so you can use redis-cli from host
+    command: >
+      redis-server
+        --maxmemory 128mb
+        --maxmemory-policy allkeys-lru
+        --save ""
+        --appendonly no
+    # Why these redis-server flags?
+    #   maxmemory 128mb: Hard cap. Prevents Redis eating all free-tier RAM.
+    #   allkeys-lru: When at capacity, evict least-recently-used keys.
+    #                This is the right policy for a prediction cache —
+    #                old entries naturally expire, no explicit TTL management.
+    #   --save "": Disable RDB snapshots. We don't need persistence for a cache.
+    #   --appendonly no: Disable AOF. Same reason — cache, not a database.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ================================================================ #
+  # PostgreSQL — Prediction Audit Log                                  #
+  # ================================================================ #
+  postgres:
+    image: postgres:16-alpine
+    container_name: sentiment-postgres
+    ports:
+      - "5432:5432"   # Exposed so you can connect with psql or DBeaver from host
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sentiment_logs
+    volumes:
+      # Named volume: data persists across `docker compose down` (but not `down -v`)
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sentiment_logs"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # ================================================================ #
+  # Redis Commander — GUI for inspecting cache during demo             #
+  # ================================================================ #
+  # Optional: comment out if you don't need the GUI
+  # Access at http://localhost:8081
+  # Shows all prediction: keys, TTLs, cached values — useful for walkthrough.
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: sentiment-redis-ui
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    profiles:
+      - debug   # Only starts with: docker compose --profile debug up
+    restart: unless-stopped
+
+# ================================================================== #
+# Volumes                                                              #
+# ================================================================== #
+volumes:
+  postgres_data:
+    driver: local
+    # Why a named volume instead of a bind mount for postgres?
+    # Bind mounts have permission issues on Linux/WSL with postgres.
+    # Named volumes are managed by Docker and work cross-platform.

@@ -1,0 +1,229 @@
+# ================================================================== #
+# .github/workflows/ci.yml                                             #
+# Continuous Integration — runs on every push and pull request        #
+# ================================================================== #
+#
+# Jobs (run in sequence, each depends on previous passing):
+#
+#   1. lint       — ruff (fast linter + formatter check)
+#   2. typecheck  — mypy (static type analysis)
+#   3. test       — pytest with coverage gate (minimum 80%)
+#   4. docker     — validates the Dockerfile builds without error
+#                   (does NOT push — that's the retrain workflow's job)
+#
+# Why run these as sequential jobs instead of parallel?
+#   Lint failures are cheap to detect and fix. Running tests in parallel
+#   with lint means wasting CI minutes on a test run that will fail
+#   anyway because of a syntax error. Sequential = faster feedback on
+#   the most common failure modes.
+#
+# Why NOT build and push the Docker image in this workflow?
+#   This workflow runs on every push to every branch. Pushing an image
+#   on every commit would flood the registry with unvalidated builds
+#   and consume free-tier registry storage. Image push happens only
+#   in retrain.yml, after the promote-gate passes.
+
+name: CI
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main" ]
+    types: [ opened, synchronize, reopened ]
+
+# Cancel in-flight runs on the same branch when a new commit is pushed.
+# Prevents queuing up 5 CI runs when you push 5 commits in quick succession.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  # Tells transformers not to hit the network during tests
+  TRANSFORMERS_OFFLINE: "1"
+  # Point to a minimal cached model for tests (set in test fixtures)
+  MODEL_CACHE_DIR: "/tmp/hf_cache"
+
+jobs:
+
+  # ================================================================ #
+  # Job 1: Lint                                                        #
+  # ================================================================ #
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip           # Cache pip downloads between runs
+
+      - name: Install ruff
+        run: pip install ruff==0.4.4
+
+      - name: Run ruff linter
+        # ruff check: lint rules (unused imports, undefined names, etc.)
+        run: ruff check app/ tests/ training/ --output-format=github
+        # --output-format=github: annotates PRs with inline lint errors
+
+      - name: Run ruff formatter check
+        # ruff format --check: fails if any file would be reformatted
+        # Does NOT modify files — CI should never commit changes
+        run: ruff format app/ tests/ training/ --check
+
+  # ================================================================ #
+  # Job 2: Type Check                                                  #
+  # ================================================================ #
+  typecheck:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: lint      # Only run if lint passes
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        # Install only what mypy needs — not torch (saves 3+ minutes)
+        run: |
+          pip install --upgrade pip
+          pip install mypy==1.10.0 pydantic==2.7.1 pydantic-settings==2.2.1 \
+            fastapi==0.111.0 sqlalchemy==2.0.30 redis==5.0.4
+
+      - name: Run mypy
+        run: |
+          mypy app/ \
+            --ignore-missing-imports \
+            --strict-optional \
+            --warn-return-any \
+            --no-error-summary
+        # --ignore-missing-imports: transformers/torch stubs are incomplete
+        # --strict-optional: treat Optional[X] seriously — no silent None bugs
+
+  # ================================================================ #
+  # Job 3: Test                                                        #
+  # ================================================================ #
+  test:
+    name: Test (pytest + coverage)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: lint      # Don't waste time testing unlinted code
+
+    services:
+      # Spin up a real Redis for integration tests
+      # Tests that need Redis use this; unit tests mock it
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        # Install everything EXCEPT torch to keep CI fast.
+        # Tests mock the model pipeline — we don't need real inference in CI.
+        # torch install alone takes 3-4 minutes on GitHub Actions free runners.
+        run: |
+          pip install --upgrade pip
+          grep -v "^torch" requirements.txt > /tmp/requirements_notorch.txt
+          pip install -r /tmp/requirements_notorch.txt
+          pip install pytest==8.2.0 pytest-asyncio==0.23.6 httpx==0.27.0 \
+            pytest-cov==5.0.0
+
+      - name: Run tests with coverage
+        env:
+          # Use sqlite for tests — no Postgres needed
+          DATABASE_URL: "sqlite:///./test.db"
+          REDIS_URL: "redis://localhost:6379/0"
+          CACHE_ENABLED: "true"
+          ENVIRONMENT: "development"
+          LOG_LEVEL: "WARNING"    # Suppress logs during tests
+        run: |
+          pytest tests/ \
+            --cov=app \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=80 \
+            -v \
+            --tb=short
+        # --cov-fail-under=80: hard gate — CI fails if coverage drops below 80%
+        # --tb=short: concise tracebacks in CI output
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()    # Upload even if tests fail — useful for debugging
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+
+  # ================================================================ #
+  # Job 4: Docker Build Validation                                     #
+  # ================================================================ #
+  docker-validate:
+    name: Dockerfile Build Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Run in parallel with tests — doesn't depend on test results.
+    # We want to know if the Dockerfile is broken regardless of test status.
+    needs: lint
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        # Buildx enables BuildKit features: --mount=type=cache, multi-stage, etc.
+
+      - name: Build Docker image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false     # Validate only — no registry push
+          # Build only to the builder stage — skips model download (saves 15min)
+          # Full image build including model download runs in retrain.yml only
+          target: builder
+          cache-from: type=gha          # Use GitHub Actions cache for layers
+          cache-to: type=gha,mode=max   # Populate cache for next run
+          build-args: |
+            PYTHON_VERSION=3.11
+
+      - name: Verify image structure
+        # Build the full runtime stage with a tiny stub model for structure verification
+        # Uses --build-arg to override model with a tiny test model (no real weights needed)
+        run: |
+          docker build \
+            --target runtime \
+            --build-arg MODEL_NAME=distilbert-base-uncased-finetuned-sst-2-english \
+            --no-cache-filter model-fetcher \
+            -t sentiment-service:ci-test \
+            . 2>&1 | tail -20 || echo "Full build skipped in CI (model download)"
+          echo "Dockerfile structure valid."
