@@ -85,7 +85,6 @@ class TestConfidenceDrift:
         """Stable high confidence should never alert."""
         _fill_baseline(svc, confidence=0.95)
 
-        result = svc._run_analysis.__func__ if False else None
         # Record 10 more samples at similar confidence
         # (this fills the live window and triggers analysis)
         for _ in range(10):

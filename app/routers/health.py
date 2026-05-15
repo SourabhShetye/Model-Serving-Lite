@@ -53,8 +53,6 @@ async def health() -> HealthResponse:
     Liveness probe. Returns 200 as long as the process is running.
     No external dependency checks — intentionally minimal.
     """
-    from app.config import get_settings
-    settings = get_settings()
     return HealthResponse(status="ok", version=settings.app_version)
 
 
@@ -71,8 +69,6 @@ async def ready(request: Request) -> JSONResponse:
     Returns 200 if ready, 503 if not.
     The 503 tells Render's load balancer to hold traffic during cold start.
     """
-    from app.config import get_settings
-    settings = get_settings()
 
     # Check 1: Model loaded?
     model_service = getattr(request.app.state, "model_service", None)

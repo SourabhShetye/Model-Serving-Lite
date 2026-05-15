@@ -25,7 +25,7 @@ import logging
 import os
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.orm import sessionmaker
 
 from app.config import get_settings
 from app.db.models import Base, PredictionLog

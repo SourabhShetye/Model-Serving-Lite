@@ -19,8 +19,9 @@ Coverage targets:
   - Background task (DB write) is triggered — not awaited in tests
 """
 
-import json
+
 import pytest
+from tests.conftest import FakeRedis  # noqa: F401 — used in type hints
 from httpx import AsyncClient
 
 

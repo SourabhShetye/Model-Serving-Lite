@@ -23,10 +23,10 @@ Architecture of the test setup:
 """
 
 import asyncio
-import json
-from dataclasses import dataclass
+
+
 from typing import AsyncGenerator
-from unittest.mock import AsyncMock, MagicMock, patch
+
 
 import pytest
 import pytest_asyncio
