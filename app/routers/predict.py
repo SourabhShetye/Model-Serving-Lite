@@ -20,7 +20,7 @@ HTTP concerns, it probably belongs in a service.
 import logging
 import time
 import uuid
-from typing import Literal
+from typing import Literal, cast
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
@@ -138,7 +138,7 @@ async def predict(
                 request_id=request_id,
                 input_text=body.text,
                 input_hash=input_hash,
-                label=cached.label,
+                label=cast(Literal["POSITIVE", "NEGATIVE"], cached.label),
                 confidence=cached.score,
                 latency_ms=cached.latency_ms,
                 cache_hit=True,
@@ -146,7 +146,7 @@ async def predict(
             )
             return PredictResponse(
                 request_id=request_id,
-                label=cached.label,
+                label=cast(Literal["POSITIVE", "NEGATIVE"], cached.label),
                 confidence=cached.score,
                 input_hash=input_hash,
                 latency_ms=cached.latency_ms,
@@ -180,7 +180,7 @@ async def predict(
         cache_svc = CacheService(redis_client)
         await cache_svc.set(
             input_hash=input_hash,
-            label=result.label,
+            label=cast(Literal["POSITIVE", "NEGATIVE"], result.label),
             score=result.score,
             latency_ms=result.latency_ms,
             model_name=result.model_name,
@@ -209,7 +209,7 @@ async def predict(
         request_id=request_id,
         input_text=body.text,
         input_hash=input_hash,
-        label=result.label,
+        label=cast(Literal["POSITIVE", "NEGATIVE"], result.label),
         confidence=result.score,
         latency_ms=result.latency_ms,
         cache_hit=False,
@@ -232,7 +232,7 @@ async def predict(
 
     return PredictResponse(
         request_id=request_id,
-        label=result.label,
+        label=cast(Literal["POSITIVE", "NEGATIVE"], result.label),
         confidence=result.score,
         input_hash=input_hash,
         latency_ms=result.latency_ms,

@@ -20,7 +20,7 @@ Coverage targets:
 """
 
 import pytest
-from tests.conftest import FakeRedis  # noqa: F401 — used in type hints
+from conftest import FakeRedis  # noqa: F401 — used in type hints
 from httpx import AsyncClient
 
 

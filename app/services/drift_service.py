@@ -562,7 +562,7 @@ class DriftService:
             from langdetect import detect, DetectorFactory
 
             DetectorFactory.seed = 42  # Make deterministic
-            return detect(text)
+            return str(detect(text))
         except Exception:
             return "unknown"
 

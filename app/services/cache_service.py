@@ -195,7 +195,7 @@ class CacheService:
                 "Cache entry deleted",
                 extra={"cache_key": key, "existed": deleted > 0},
             )
-            return deleted > 0
+            return bool(deleted > 0)
         except aioredis.RedisError as exc:
             logger.warning(
                 "Redis DELETE failed",
