@@ -53,7 +53,8 @@ async def health() -> HealthResponse:
     Liveness probe. Returns 200 as long as the process is running.
     No external dependency checks — intentionally minimal.
     """
-    return HealthResponse(status="ok", version=settings.app_version)
+    from app.config import get_settings
+    return HealthResponse(status="ok", version=get_settings().app_version)
 
 
 @router.get(
