@@ -37,6 +37,7 @@ settings = get_settings()
 # Engine & Session Factory                                             #
 # ------------------------------------------------------------------ #
 
+
 def _create_engine():
     """
     Creates the SQLAlchemy engine with connection pool settings
@@ -86,6 +87,7 @@ def get_session_factory() -> sessionmaker:
 # Schema Management                                                    #
 # ------------------------------------------------------------------ #
 
+
 def create_tables() -> None:
     """
     Creates all tables defined in models.py if they don't exist.
@@ -128,6 +130,7 @@ def check_connection() -> bool:
 # ------------------------------------------------------------------ #
 # Write Operations                                                     #
 # ------------------------------------------------------------------ #
+
 
 def write_prediction_log(
     *,
@@ -197,6 +200,7 @@ def write_prediction_log(
 # ------------------------------------------------------------------ #
 # Read Operations (for drift analysis and debugging)                   #
 # ------------------------------------------------------------------ #
+
 
 def get_recent_confidence_stats(window_hours: int = 1) -> dict:
     """

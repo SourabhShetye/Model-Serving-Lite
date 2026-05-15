@@ -23,8 +23,12 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     app_name: str = "sentiment-service"
     app_version: str = "0.1.0"
-    environment: str = Field(default="development", pattern="^(development|staging|production)$")
-    log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
+    environment: str = Field(
+        default="development", pattern="^(development|staging|production)$"
+    )
+    log_level: str = Field(
+        default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$"
+    )
 
     # ------------------------------------------------------------------ #
     # Model                                                                #
@@ -39,8 +43,8 @@ class Settings(BaseSettings):
     # Redis (Feature Store / Cache)                                        #
     # ------------------------------------------------------------------ #
     redis_url: str = "redis://localhost:6379/0"
-    cache_ttl_seconds: int = 3600          # 1 hour — predictions don't expire often
-    cache_enabled: bool = True             # Kill switch: set to false to bypass cache
+    cache_ttl_seconds: int = 3600  # 1 hour — predictions don't expire often
+    cache_enabled: bool = True  # Kill switch: set to false to bypass cache
 
     # ------------------------------------------------------------------ #
     # PostgreSQL (Prediction Log sink)                                     #
@@ -63,10 +67,10 @@ class Settings(BaseSettings):
     # Pydantic Settings Config                                             #
     # ------------------------------------------------------------------ #
     model_config = SettingsConfigDict(
-        env_file=".env",           # Load from .env if present (local dev)
+        env_file=".env",  # Load from .env if present (local dev)
         env_file_encoding="utf-8",
-        case_sensitive=False,      # MODEL_NAME and model_name both work
-        extra="ignore",            # Don't crash on unknown env vars
+        case_sensitive=False,  # MODEL_NAME and model_name both work
+        extra="ignore",  # Don't crash on unknown env vars
     )
 
 

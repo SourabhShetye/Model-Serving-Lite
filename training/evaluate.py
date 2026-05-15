@@ -85,6 +85,7 @@ def load_test_data(data_dir: Path) -> tuple[list[str], list[int]]:
 
     for test_file in test_files:
         import csv
+
         with open(test_file, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -140,7 +141,7 @@ def evaluate(
     pipe = pipeline(
         "sentiment-analysis",
         model=str(model_dir),
-        device=-1,          # CPU
+        device=-1,  # CPU
         top_k=1,
     )
 
@@ -160,14 +161,13 @@ def evaluate(
     # Map pipeline output labels to integers
     # Pipeline returns "POSITIVE"/"NEGATIVE" — map to 1/0 to match our labels
     LABEL_MAP = {"POSITIVE": 1, "NEGATIVE": 0}
-    predicted_labels = [
-        LABEL_MAP.get(pred[0]["label"], -1)
-        for pred in raw_predictions
-    ]
+    predicted_labels = [LABEL_MAP.get(pred[0]["label"], -1) for pred in raw_predictions]
 
     if -1 in predicted_labels:
         unknown = [texts[i] for i, p in enumerate(predicted_labels) if p == -1]
-        logger.error("Unknown labels returned for %d examples: %s", len(unknown), unknown[:3])
+        logger.error(
+            "Unknown labels returned for %d examples: %s", len(unknown), unknown[:3]
+        )
         sys.exit(1)
 
     # ---------------------------------------------------------------- #
@@ -175,8 +175,12 @@ def evaluate(
     # ---------------------------------------------------------------- #
     accuracy = accuracy_score(true_labels, predicted_labels)
     f1 = f1_score(true_labels, predicted_labels, average="macro", zero_division=0)
-    precision = precision_score(true_labels, predicted_labels, average="macro", zero_division=0)
-    recall = recall_score(true_labels, predicted_labels, average="macro", zero_division=0)
+    precision = precision_score(
+        true_labels, predicted_labels, average="macro", zero_division=0
+    )
+    recall = recall_score(
+        true_labels, predicted_labels, average="macro", zero_division=0
+    )
 
     # Per-class breakdown — shows if the model is biased toward one class
     report = classification_report(
@@ -190,12 +194,15 @@ def evaluate(
     conf_matrix = confusion_matrix(true_labels, predicted_labels).tolist()
 
     if verbose:
-        logger.info("\n%s", classification_report(
-            true_labels,
-            predicted_labels,
-            target_names=["NEGATIVE", "POSITIVE"],
-            zero_division=0,
-        ))
+        logger.info(
+            "\n%s",
+            classification_report(
+                true_labels,
+                predicted_labels,
+                target_names=["NEGATIVE", "POSITIVE"],
+                zero_division=0,
+            ),
+        )
         logger.info("Confusion matrix:\n%s", conf_matrix)
 
     # ---------------------------------------------------------------- #
@@ -237,7 +244,11 @@ def evaluate(
     logger.info("Metrics written to %s", output_file)
     logger.info(
         "Results — F1: %.4f | Accuracy: %.4f | Precision: %.4f | Recall: %.4f | n=%d",
-        f1, accuracy, precision, recall, len(texts),
+        f1,
+        accuracy,
+        precision,
+        recall,
+        len(texts),
     )
 
     return metrics

@@ -59,6 +59,7 @@ class PredictionLog(Base):
     Every column has a comment explaining its observability purpose —
     the DBA reading this schema should understand the monitoring story.
     """
+
     __tablename__ = "prediction_logs"
 
     # Primary key
@@ -149,7 +150,7 @@ class PredictionLog(Base):
         comment="Wall-clock time of the request (server time, UTC).",
     )
     client_ip = Column(
-        String(45),   # IPv6 max length
+        String(45),  # IPv6 max length
         nullable=True,
         comment="Client IP from X-Forwarded-For or direct connection.",
     )

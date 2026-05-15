@@ -50,6 +50,7 @@ settings = get_settings()
 # We use python-json-logger here so every log line is valid JSON from
 # the very first message. This is what structured log aggregators expect.
 
+
 def configure_logging() -> None:
     """
     Sets up JSON structured logging for the entire application.
@@ -85,6 +86,7 @@ logger = logging.getLogger(__name__)
 # Lifespan                                                             #
 # ------------------------------------------------------------------ #
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
@@ -93,7 +95,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Code BEFORE yield = startup.
     Code AFTER yield = shutdown.
     """
-    logger.info("Starting up", extra={"environment": settings.environment, "version": settings.app_version})
+    logger.info(
+        "Starting up",
+        extra={"environment": settings.environment, "version": settings.app_version},
+    )
     app.state.startup_time = time.time()
 
     # ---------------------------------------------------------------- #
@@ -106,8 +111,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 settings.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
-                socket_connect_timeout=10,    # Don't hang for 30 seconds if Redis is down
-                socket_timeout=5,            # Individual command timeout
+                socket_connect_timeout=10,  # Don't hang for 30 seconds if Redis is down
+                socket_timeout=5,  # Individual command timeout
             )
             await redis_client.ping()
             app.state.redis_client = redis_client
@@ -176,6 +181,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 # App Factory                                                          #
 # ------------------------------------------------------------------ #
 
+
 def create_app() -> FastAPI:
     """
     Creates and configures the FastAPI application.
@@ -192,7 +198,7 @@ def create_app() -> FastAPI:
             "Production sentiment analysis service. "
             "Includes request logging, Redis caching, and drift monitoring."
         ),
-        docs_url="/docs",           # Swagger UI — useful during the walkthrough demo
+        docs_url="/docs",  # Swagger UI — useful during the walkthrough demo
         redoc_url="/redoc",
         lifespan=lifespan,
     )

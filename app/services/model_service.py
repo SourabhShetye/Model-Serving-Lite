@@ -31,17 +31,21 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 os.environ["TRANSFORMERS_CACHE"] = settings.model_cache_dir
 
+
 @dataclass(frozen=True)
 class PredictionResult:
     """
     Immutable result object. frozen=True means no accidental mutation
     downstream. The router turns this into a Pydantic response model.
     """
-    label: str           # "POSITIVE" or "NEGATIVE"
-    score: float         # Confidence, 0.0–1.0
-    input_hash: str      # SHA-256 of input text — used as cache key and log correlation ID
-    latency_ms: float    # Time taken inside the model (excludes cache overhead)
-    model_name: str      # Which model produced this — critical for debugging after a retrain
+
+    label: str  # "POSITIVE" or "NEGATIVE"
+    score: float  # Confidence, 0.0–1.0
+    input_hash: str  # SHA-256 of input text — used as cache key and log correlation ID
+    latency_ms: float  # Time taken inside the model (excludes cache overhead)
+    model_name: (
+        str  # Which model produced this — critical for debugging after a retrain
+    )
 
 
 def build_input_hash(text: str) -> str:
@@ -73,7 +77,10 @@ def load_pipeline() -> Pipeline:
     """
     logger.info(
         "Loading model pipeline",
-        extra={"model_name": settings.model_name, "cache_dir": settings.model_cache_dir},
+        extra={
+            "model_name": settings.model_name,
+            "cache_dir": settings.model_cache_dir,
+        },
     )
 
     t0 = time.perf_counter()

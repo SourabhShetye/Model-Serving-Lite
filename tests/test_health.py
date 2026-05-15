@@ -23,6 +23,7 @@ from httpx import AsyncClient
 # /health — Liveness probe                                             #
 # ------------------------------------------------------------------ #
 
+
 class TestHealth:
     @pytest.mark.asyncio
     async def test_health_returns_200(self, client: AsyncClient):
@@ -48,10 +49,13 @@ class TestHealth:
         In production, a slow health check causes unnecessary container restarts.
         """
         import time
+
         t0 = time.perf_counter()
         await client.get("/health")
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        assert elapsed_ms < 200, f"/health took {elapsed_ms:.1f}ms — too slow for a liveness probe"
+        assert (
+            elapsed_ms < 200
+        ), f"/health took {elapsed_ms:.1f}ms — too slow for a liveness probe"
 
     @pytest.mark.asyncio
     async def test_health_has_no_external_dependencies(self, client: AsyncClient):
@@ -68,6 +72,7 @@ class TestHealth:
 # ------------------------------------------------------------------ #
 # /ready — Readiness probe                                             #
 # ------------------------------------------------------------------ #
+
 
 class TestReady:
     @pytest.mark.asyncio
@@ -100,7 +105,9 @@ class TestReady:
         assert data["redis_reachable"] is True
 
     @pytest.mark.asyncio
-    async def test_ready_returns_503_when_model_not_loaded(self, app, client: AsyncClient):
+    async def test_ready_returns_503_when_model_not_loaded(
+        self, app, client: AsyncClient
+    ):
         """
         Simulate a startup failure: model_service is None.
         /ready must return 503 so the load balancer holds traffic.
@@ -127,8 +134,8 @@ class TestReady:
         assert response.status_code == 200
         data = response.json()
         assert data["model_loaded"] is True
-        assert data["redis_reachable"] is False   # Redis is None in no_cache fixture
-        assert data["status"] == "ready"          # Still ready — Redis is not required
+        assert data["redis_reachable"] is False  # Redis is None in no_cache fixture
+        assert data["status"] == "ready"  # Still ready — Redis is not required
 
     @pytest.mark.asyncio
     async def test_ready_uptime_is_numeric(self, client: AsyncClient):

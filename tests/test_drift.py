@@ -22,6 +22,7 @@ from app.services.drift_service import DriftService, DriftSignal, reset_drift_se
 # Fixtures                                                             #
 # ------------------------------------------------------------------ #
 
+
 @pytest.fixture(autouse=True)
 def clean_singleton():
     """Reset the DriftService singleton before every test."""
@@ -37,6 +38,7 @@ def svc(monkeypatch) -> DriftService:
     Patches settings so we don't need a real .env file.
     """
     from app import config
+
     settings = config.get_settings()
     monkeypatch.setattr(settings, "drift_window_size", 10)
     monkeypatch.setattr(settings, "drift_ks_threshold", 0.05)
@@ -49,6 +51,7 @@ def svc(monkeypatch) -> DriftService:
 # Helpers                                                              #
 # ------------------------------------------------------------------ #
 
+
 def _fill_baseline(svc: DriftService, n: int = 10, confidence: float = 0.95) -> None:
     """Fills the baseline window with stable English, short, high-confidence samples."""
     for _ in range(n):
@@ -58,6 +61,7 @@ def _fill_baseline(svc: DriftService, n: int = 10, confidence: float = 0.95) -> 
 # ------------------------------------------------------------------ #
 # Baseline establishment                                               #
 # ------------------------------------------------------------------ #
+
 
 class TestBaseline:
     def test_baseline_not_established_initially(self, svc):
@@ -79,6 +83,7 @@ class TestBaseline:
 # ------------------------------------------------------------------ #
 # Signal 3: Confidence Collapse (tested first — simplest)             #
 # ------------------------------------------------------------------ #
+
 
 class TestConfidenceDrift:
     def test_no_alert_on_stable_confidence(self, svc):
@@ -113,9 +118,9 @@ class TestConfidenceDrift:
         for _ in range(10):
             svc.record(text="Uncertain input...", confidence=0.52)
 
-        assert any(a.signal == DriftSignal.CONFIDENCE for a in alerts_fired), (
-            "Expected confidence drift alert, got none"
-        )
+        assert any(
+            a.signal == DriftSignal.CONFIDENCE for a in alerts_fired
+        ), "Expected confidence drift alert, got none"
 
     def test_confidence_alert_severity_critical_on_large_drop(self, svc):
         """A >25% confidence drop should be CRITICAL, not just WARNING."""
@@ -136,6 +141,7 @@ class TestConfidenceDrift:
 # Signal 1: Input Length KS Test                                       #
 # ------------------------------------------------------------------ #
 
+
 class TestLengthDrift:
     def test_no_alert_on_similar_lengths(self, svc):
         """Similar length distributions should not alert."""
@@ -147,7 +153,9 @@ class TestLengthDrift:
         for _ in range(10):
             svc.record(text="Short text here.", confidence=0.95)
 
-        length_alerts = [a for a in alerts_fired if a.signal == DriftSignal.INPUT_LENGTH]
+        length_alerts = [
+            a for a in alerts_fired if a.signal == DriftSignal.INPUT_LENGTH
+        ]
         assert not length_alerts, f"False positive length alert: {length_alerts}"
 
     def test_length_drift_detected_on_very_long_inputs(self, svc):
@@ -162,7 +170,9 @@ class TestLengthDrift:
         for _ in range(10):
             svc.record(text="x" * 500, confidence=0.95)
 
-        length_alerts = [a for a in alerts_fired if a.signal == DriftSignal.INPUT_LENGTH]
+        length_alerts = [
+            a for a in alerts_fired if a.signal == DriftSignal.INPUT_LENGTH
+        ]
         assert length_alerts, "Expected length drift alert on extreme length shift"
 
     def test_ks_test_returns_pvalue(self, svc):
@@ -178,6 +188,7 @@ class TestLengthDrift:
 # ------------------------------------------------------------------ #
 # Signal 2: Language Distribution                                      #
 # ------------------------------------------------------------------ #
+
 
 class TestLanguageDrift:
     def test_no_alert_on_english_traffic(self, svc):
@@ -218,15 +229,18 @@ class TestLanguageDrift:
 # Singleton behaviour                                                  #
 # ------------------------------------------------------------------ #
 
+
 class TestSingleton:
     def test_get_drift_service_returns_same_instance(self):
         from app.services.drift_service import get_drift_service
+
         svc1 = get_drift_service()
         svc2 = get_drift_service()
         assert svc1 is svc2
 
     def test_reset_clears_singleton(self):
         from app.services.drift_service import get_drift_service, reset_drift_service
+
         svc1 = get_drift_service()
         reset_drift_service()
         svc2 = get_drift_service()

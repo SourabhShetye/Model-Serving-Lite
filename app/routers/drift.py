@@ -154,7 +154,9 @@ async def simulate_drift(body: SimulateRequest) -> SimulateResponse:
             synthetic_text = "".join(
                 random.choices(string.ascii_lowercase + " ", k=random.randint(400, 512))
             )
-            confidence = random.uniform(0.85, 0.99)  # High confidence — only length shifts
+            confidence = random.uniform(
+                0.85, 0.99
+            )  # High confidence — only length shifts
             drift_svc.record(text=synthetic_text, confidence=confidence)
             injected += 1
         message = (
@@ -166,11 +168,11 @@ async def simulate_drift(body: SimulateRequest) -> SimulateResponse:
         # Inject texts in non-English languages
         # These are real phrases — langdetect will detect them correctly
         non_english_samples = [
-            "C'est une très bonne journée aujourd'hui.",          # French
-            "Das Wetter ist heute wirklich wunderschön.",          # German
-            "Este producto es absolutamente increíble y útil.",    # Spanish
-            "Il prodotto è di ottima qualità e mi è piaciuto.",   # Italian
-            "Este filme foi uma experiência incrível para mim.",   # Portuguese
+            "C'est une très bonne journée aujourd'hui.",  # French
+            "Das Wetter ist heute wirklich wunderschön.",  # German
+            "Este producto es absolutamente increíble y útil.",  # Spanish
+            "Il prodotto è di ottima qualità e mi è piaciuto.",  # Italian
+            "Este filme foi uma experiência incrível para mim.",  # Portuguese
         ]
         for i in range(body.num_samples):
             synthetic_text = non_english_samples[i % len(non_english_samples)]

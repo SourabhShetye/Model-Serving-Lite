@@ -35,6 +35,7 @@ router = APIRouter(prefix="/predict", tags=["inference"])
 # Request / Response Schemas                                           #
 # ------------------------------------------------------------------ #
 
+
 class PredictRequest(BaseModel):
     text: str = Field(
         ...,
@@ -58,11 +59,15 @@ class PredictRequest(BaseModel):
 
 
 class PredictResponse(BaseModel):
-    request_id: str = Field(description="UUID for log correlation. Give this to support.")
+    request_id: str = Field(
+        description="UUID for log correlation. Give this to support."
+    )
     label: Literal["POSITIVE", "NEGATIVE"]
     confidence: float = Field(ge=0.0, le=1.0, description="Model confidence score")
     input_hash: str = Field(description="SHA-256 of input. Used as cache key.")
-    latency_ms: float = Field(description="Model inference time (excludes cache lookup)")
+    latency_ms: float = Field(
+        description="Model inference time (excludes cache lookup)"
+    )
     model_name: str
     cache_hit: bool = Field(description="True if result was served from Redis cache")
 
@@ -70,6 +75,7 @@ class PredictResponse(BaseModel):
 # ------------------------------------------------------------------ #
 # Endpoint                                                             #
 # ------------------------------------------------------------------ #
+
 
 @router.post(
     "/",
@@ -156,7 +162,11 @@ async def predict(
     except ValueError as exc:
         logger.error(
             "Model returned unexpected output",
-            extra={"request_id": request_id, "input_hash": input_hash, "error": str(exc)},
+            extra={
+                "request_id": request_id,
+                "input_hash": input_hash,
+                "error": str(exc),
+            },
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -181,6 +191,7 @@ async def predict(
     # ---------------------------------------------------------------- #
     try:
         from app.services.drift_service import get_drift_service
+
         drift_service = get_drift_service()
         drift_service.record(text=body.text, confidence=result.score)
     except Exception as exc:
@@ -234,6 +245,7 @@ async def predict(
 # Background task helpers                                              #
 # ------------------------------------------------------------------ #
 
+
 def _log_to_db(
     *,
     request: Request,
@@ -257,8 +269,10 @@ def _log_to_db(
         return  # DB not reachable — skip silently, structured log is the fallback
 
     from app.db.crud import write_prediction_log
+
     try:
         from langdetect import detect
+
         detected_language = detect(input_text)
     except Exception:
         detected_language = None

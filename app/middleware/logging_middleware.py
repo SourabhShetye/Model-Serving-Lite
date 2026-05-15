@@ -90,7 +90,7 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
         # ------------------------------------------------------------ #
         # 3. Call the actual route handler                              #
         # ------------------------------------------------------------ #
-        status_code = 500   # Default: assume failure until we hear otherwise
+        status_code = 500  # Default: assume failure until we hear otherwise
         error_detail: str | None = None
 
         try:

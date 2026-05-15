@@ -47,11 +47,11 @@ from app.services.model_service import ModelService, PredictionResult
 TEST_SETTINGS = Settings(
     app_name="sentiment-service-test",
     environment="development",
-    log_level="WARNING",          # Suppress logs during tests
+    log_level="WARNING",  # Suppress logs during tests
     redis_url="redis://localhost:6379/0",
     cache_enabled=True,
     database_url="sqlite:///./test_predictions.db",
-    drift_window_size=10,         # Small window so drift tests are fast
+    drift_window_size=10,  # Small window so drift tests are fast
     drift_ks_threshold=0.05,
     drift_confidence_drop_threshold=0.10,
     drift_language_threshold=0.30,
@@ -63,6 +63,7 @@ TEST_SETTINGS = Settings(
 # ------------------------------------------------------------------ #
 # Mock model service                                                   #
 # ------------------------------------------------------------------ #
+
 
 class MockModelService(ModelService):
     """
@@ -89,8 +90,18 @@ class MockModelService(ModelService):
     def predict(self, text: str) -> PredictionResult:
         from app.services.model_service import build_input_hash
 
-        positive_keywords = {"great", "good", "love", "excellent", "wonderful",
-                             "amazing", "fantastic", "best", "happy", "perfect"}
+        positive_keywords = {
+            "great",
+            "good",
+            "love",
+            "excellent",
+            "wonderful",
+            "amazing",
+            "fantastic",
+            "best",
+            "happy",
+            "perfect",
+        }
         words = set(text.lower().split())
         is_positive = bool(words & positive_keywords)
 
@@ -98,7 +109,7 @@ class MockModelService(ModelService):
             label="POSITIVE" if is_positive else "NEGATIVE",
             score=0.9998 if is_positive else 0.9991,
             input_hash=build_input_hash(text),
-            latency_ms=42.0,       # Fixed — easy to assert on
+            latency_ms=42.0,  # Fixed — easy to assert on
             model_name=self._model_name,
         )
 
@@ -106,6 +117,7 @@ class MockModelService(ModelService):
 # ------------------------------------------------------------------ #
 # Fake Redis (in-memory, no server)                                    #
 # ------------------------------------------------------------------ #
+
 
 class FakeRedis:
     """
@@ -130,7 +142,7 @@ class FakeRedis:
         return self._store.get(key)
 
     async def setex(self, key: str, ttl: int, value: str) -> None:
-        self._store[key] = value   # TTL not enforced in tests
+        self._store[key] = value  # TTL not enforced in tests
 
     async def delete(self, *keys: str) -> int:
         deleted = sum(1 for k in keys if k in self._store)
@@ -141,8 +153,9 @@ class FakeRedis:
     async def scan(self, cursor: int, match: str = "*", count: int = 100):
         # Simplified scan — returns all matching keys in one pass
         import fnmatch
+
         matching = [k for k in self._store if fnmatch.fnmatch(k, match)]
-        return (0, matching)   # cursor=0 signals "done"
+        return (0, matching)  # cursor=0 signals "done"
 
     async def aclose(self) -> None:
         pass
@@ -155,6 +168,7 @@ class FakeRedis:
 # ------------------------------------------------------------------ #
 # Fixtures                                                             #
 # ------------------------------------------------------------------ #
+
 
 @pytest.fixture(scope="session")
 def event_loop_policy():
@@ -204,7 +218,7 @@ def app(mock_model: MockModelService, fake_redis: FakeRedis) -> FastAPI:
     # Set state directly — bypasses the lifespan startup
     application.state.model_service = mock_model
     application.state.redis_client = fake_redis
-    application.state.db_available = False    # Disable DB writes in unit tests
+    application.state.db_available = False  # Disable DB writes in unit tests
     application.state.startup_time = 0.0
 
     # Override dependency providers
@@ -238,7 +252,7 @@ def no_cache_app(mock_model: MockModelService) -> FastAPI:
     """
     application = create_app()
     application.state.model_service = mock_model
-    application.state.redis_client = None    # Simulates Redis being unavailable
+    application.state.redis_client = None  # Simulates Redis being unavailable
     application.state.db_available = False
     application.state.startup_time = 0.0
 

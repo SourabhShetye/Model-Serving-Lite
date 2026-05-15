@@ -58,11 +58,13 @@ settings = get_settings()
 # Data Structures                                                      #
 # ------------------------------------------------------------------ #
 
+
 class DriftSignal(str, Enum):
     """Named drift signals. String enum so they serialise cleanly in JSON logs."""
-    INPUT_LENGTH  = "input_length_ks"
-    LANGUAGE      = "language_distribution"
-    CONFIDENCE    = "confidence_collapse"
+
+    INPUT_LENGTH = "input_length_ks"
+    LANGUAGE = "language_distribution"
+    CONFIDENCE = "confidence_collapse"
 
 
 @dataclass
@@ -71,18 +73,19 @@ class DriftAlert:
     A single drift event. Logged as structured JSON when triggered.
     Also increments a Prometheus counter (if wired up in main.py).
     """
+
     signal: DriftSignal
     message: str
     current_value: float
     baseline_value: float
     threshold: float
     window_size: int
-    severity: str = "WARNING"   # WARNING | CRITICAL
+    severity: str = "WARNING"  # WARNING | CRITICAL
 
     def to_log_dict(self) -> dict:
         return {
             "drift_signal": self.signal.value,
-            "detail": self.message,       # "message" is reserved by python-json-logger
+            "detail": self.message,  # "message" is reserved by python-json-logger
             "current_value": round(self.current_value, 4),
             "baseline_value": round(self.baseline_value, 4),
             "threshold": self.threshold,
@@ -97,6 +100,7 @@ class AnalysisResult:
     The result of one full drift analysis pass.
     Contains all signal results so callers can log or act on them.
     """
+
     alerts: list[DriftAlert] = field(default_factory=list)
     window_size: int = 0
     baseline_size: int = 0
@@ -112,6 +116,7 @@ class AnalysisResult:
 # ------------------------------------------------------------------ #
 # Drift Service                                                        #
 # ------------------------------------------------------------------ #
+
 
 class DriftService:
     """
@@ -135,7 +140,9 @@ class DriftService:
     def __init__(self) -> None:
         self._window_size: int = settings.drift_window_size
         self._ks_threshold: float = settings.drift_ks_threshold
-        self._confidence_drop_threshold: float = settings.drift_confidence_drop_threshold
+        self._confidence_drop_threshold: float = (
+            settings.drift_confidence_drop_threshold
+        )
         self._language_threshold: float = settings.drift_language_threshold
 
         # Baseline window: filled once, then frozen
@@ -206,9 +213,13 @@ class DriftService:
                         "Drift baseline established",
                         extra={
                             "window_size": self._window_size,
-                            "baseline_mean_length": round(statistics.mean(self._baseline_lengths), 2),
+                            "baseline_mean_length": round(
+                                statistics.mean(self._baseline_lengths), 2
+                            ),
                             "baseline_mean_confidence": round(baseline_conf_mean, 4),
-                            "baseline_lang_dist": self._language_distribution(self._baseline_languages),
+                            "baseline_lang_dist": self._language_distribution(
+                                self._baseline_languages
+                            ),
                         },
                     )
                 return  # Don't run analysis while building baseline
@@ -238,19 +249,25 @@ class DriftService:
         with self._lock:
             baseline_conf_mean = (
                 statistics.mean(self._baseline_confidences)
-                if self._baseline_confidences else None
+                if self._baseline_confidences
+                else None
             )
             live_conf_mean = (
                 statistics.mean(self._live_confidences)
-                if self._live_confidences else None
+                if self._live_confidences
+                else None
             )
             return {
                 "baseline_established": self._baseline_frozen,
                 "baseline_size": len(self._baseline_lengths),
                 "live_window_size": len(self._live_lengths),
                 "total_observations": self._total_observations,
-                "baseline_mean_confidence": round(baseline_conf_mean, 4) if baseline_conf_mean else None,
-                "live_mean_confidence": round(live_conf_mean, 4) if live_conf_mean else None,
+                "baseline_mean_confidence": round(baseline_conf_mean, 4)
+                if baseline_conf_mean
+                else None,
+                "live_mean_confidence": round(live_conf_mean, 4)
+                if live_conf_mean
+                else None,
                 "window_capacity": self._window_size,
                 "next_analysis_in": max(0, self._window_size - len(self._live_lengths)),
             }
@@ -287,6 +304,7 @@ class DriftService:
         """
         try:
             from scipy.stats import ks_2samp
+
             statistic, pvalue = ks_2samp(baseline, live)
 
             baseline_mean = statistics.mean(baseline)
@@ -347,8 +365,12 @@ class DriftService:
         if not live_langs:
             return 0.0, None
 
-        baseline_non_english = sum(1 for lang in baseline_langs if lang != "en") / max(len(baseline_langs), 1)
-        live_non_english = sum(1 for lang in live_langs if lang != "en") / len(live_langs)
+        baseline_non_english = sum(1 for lang in baseline_langs if lang != "en") / max(
+            len(baseline_langs), 1
+        )
+        live_non_english = sum(1 for lang in live_langs if lang != "en") / len(
+            live_langs
+        )
 
         if live_non_english > self._language_threshold:
             lang_dist = self._language_distribution(live_langs)
@@ -465,7 +487,9 @@ class DriftService:
             result.alerts.append(length_alert)
 
         # Signal 2: language distribution
-        non_en_fraction, lang_alert = self._check_language_drift(baseline_langs, live_langs)
+        non_en_fraction, lang_alert = self._check_language_drift(
+            baseline_langs, live_langs
+        )
         result.language_non_english_fraction = non_en_fraction
         if lang_alert:
             result.alerts.append(lang_alert)
@@ -495,13 +519,18 @@ class DriftService:
             "window_size": result.window_size,
             "drift_detected": result.is_drift_detected,
             "alert_count": len(result.alerts),
-            "ks_pvalue": round(result.ks_pvalue, 4) if result.ks_pvalue is not None else None,
+            "ks_pvalue": round(result.ks_pvalue, 4)
+            if result.ks_pvalue is not None
+            else None,
             "non_english_fraction": round(result.language_non_english_fraction, 4)
-                if result.language_non_english_fraction is not None else None,
+            if result.language_non_english_fraction is not None
+            else None,
             "confidence_baseline": round(result.confidence_baseline_mean, 4)
-                if result.confidence_baseline_mean is not None else None,
+            if result.confidence_baseline_mean is not None
+            else None,
             "confidence_live": round(result.confidence_rolling_mean, 4)
-                if result.confidence_rolling_mean is not None else None,
+            if result.confidence_rolling_mean is not None
+            else None,
         }
 
         if result.is_drift_detected:
@@ -531,7 +560,8 @@ class DriftService:
         """
         try:
             from langdetect import detect, DetectorFactory
-            DetectorFactory.seed = 42   # Make deterministic
+
+            DetectorFactory.seed = 42  # Make deterministic
             return detect(text)
         except Exception:
             return "unknown"

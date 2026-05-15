@@ -54,6 +54,7 @@ async def health() -> HealthResponse:
     No external dependency checks — intentionally minimal.
     """
     from app.config import get_settings
+
     return HealthResponse(status="ok", version=get_settings().app_version)
 
 
@@ -91,7 +92,9 @@ async def ready(request: Request) -> JSONResponse:
 
     # We're ready if the model is loaded. Redis is optional.
     is_ready = model_loaded
-    http_status = status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+    http_status = (
+        status.HTTP_200_OK if is_ready else status.HTTP_503_SERVICE_UNAVAILABLE
+    )
 
     body = ReadinessResponse(
         status="ready" if is_ready else "not_ready",

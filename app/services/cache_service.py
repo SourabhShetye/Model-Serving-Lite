@@ -47,6 +47,7 @@ class CachedPrediction:
     Typed representation of a cache hit.
     Mirrors PredictionResult but comes from Redis, not the model.
     """
+
     label: Literal["POSITIVE", "NEGATIVE"]
     score: float
     latency_ms: float
@@ -114,7 +115,11 @@ class CacheService:
         except aioredis.RedisError as exc:
             logger.warning(
                 "Redis GET failed — treating as cache miss",
-                extra={"cache_key": key, "error": str(exc), "error_type": type(exc).__name__},
+                extra={
+                    "cache_key": key,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                },
             )
             return None
 
@@ -147,12 +152,14 @@ class CacheService:
           detecting if the cached version came from a slower model version.
         """
         key = self._make_key(input_hash)
-        payload = json.dumps({
-            "label": label,
-            "score": score,
-            "latency_ms": latency_ms,
-            "model_name": model_name,
-        })
+        payload = json.dumps(
+            {
+                "label": label,
+                "score": score,
+                "latency_ms": latency_ms,
+                "model_name": model_name,
+            }
+        )
 
         try:
             await self._client.setex(key, self._ttl, payload)
@@ -217,7 +224,7 @@ class CacheService:
                 cursor, keys = await self._client.scan(
                     cursor=cursor,
                     match="prediction:*",
-                    count=100,   # Process 100 keys per iteration
+                    count=100,  # Process 100 keys per iteration
                 )
                 if keys:
                     deleted_count += await self._client.delete(*keys)

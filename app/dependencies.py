@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # Settings                                                             #
 # ------------------------------------------------------------------ #
 
+
 def get_settings_dep() -> Settings:
     """
     Wraps get_settings() for use as a FastAPI dependency.
@@ -47,6 +48,7 @@ SettingsDep = Annotated[Settings, Depends(get_settings_dep)]
 # ------------------------------------------------------------------ #
 # Model Service                                                        #
 # ------------------------------------------------------------------ #
+
 
 def get_model_service(request: Request) -> ModelService:
     """
@@ -76,6 +78,7 @@ ModelServiceDep = Annotated[ModelService, Depends(get_model_service)]
 # Redis Client                                                         #
 # ------------------------------------------------------------------ #
 
+
 async def get_redis(request: Request) -> aioredis.Redis | None:
     """
     Returns the async Redis client from app.state, or None if Redis
@@ -94,7 +97,9 @@ async def get_redis(request: Request) -> aioredis.Redis | None:
     if not settings.cache_enabled:
         return None
 
-    redis_client: aioredis.Redis | None = getattr(request.app.state, "redis_client", None)
+    redis_client: aioredis.Redis | None = getattr(
+        request.app.state, "redis_client", None
+    )
     if redis_client is None:
         logger.warning("Redis client not available — cache disabled for this request")
     return redis_client

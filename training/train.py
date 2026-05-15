@@ -52,11 +52,13 @@ def set_seeds(seed: int = RANDOM_SEED) -> None:
     random.seed(seed)
     try:
         import numpy as np
+
         np.random.seed(seed)
     except ImportError:
         pass
     try:
         import torch
+
         torch.manual_seed(seed)
         torch.backends.cudnn.deterministic = True
     except ImportError:
@@ -111,6 +113,7 @@ def load_training_data(data_dir: Path) -> tuple[list[str], list[int]]:
     for csv_file in csv_files:
         try:
             import csv
+
             with open(csv_file, newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 for row in reader:
@@ -125,7 +128,9 @@ def load_training_data(data_dir: Path) -> tuple[list[str], list[int]]:
             logger.error("Failed to load %s: %s", csv_file, exc)
 
     if not texts:
-        logger.error("No valid training examples loaded — check CSV format (text,label)")
+        logger.error(
+            "No valid training examples loaded — check CSV format (text,label)"
+        )
         sys.exit(1)
 
     logger.info("Total training examples: %d", len(texts))
@@ -163,7 +168,9 @@ def train(
 
     BASE_MODEL = "distilbert-base-uncased-finetuned-sst-2-english"
 
-    logger.info("Starting training run | version=%s | dry_run=%s", model_version, dry_run)
+    logger.info(
+        "Starting training run | version=%s | dry_run=%s", model_version, dry_run
+    )
 
     # ---------------------------------------------------------------- #
     # Load data                                                         #
@@ -173,14 +180,16 @@ def train(
 
     # Hold out 20% for intra-training validation (not the final eval set)
     train_texts, val_texts, train_labels, val_labels = train_test_split(
-        texts, labels,
+        texts,
+        labels,
         test_size=0.2,
         random_state=RANDOM_SEED,
         stratify=labels,
     )
     logger.info(
         "Split: %d train / %d validation",
-        len(train_texts), len(val_texts),
+        len(train_texts),
+        len(val_texts),
     )
 
     # ---------------------------------------------------------------- #
@@ -207,7 +216,9 @@ def train(
     total = sum(p.numel() for p in model.parameters())
     logger.info(
         "Trainable parameters: %d / %d (%.1f%%)",
-        trainable, total, 100 * trainable / total,
+        trainable,
+        total,
+        100 * trainable / total,
     )
 
     # ---------------------------------------------------------------- #
@@ -255,17 +266,17 @@ def train(
         num_train_epochs=3,
         per_device_train_batch_size=16,
         per_device_eval_batch_size=32,
-        learning_rate=2e-4,         # Higher LR OK since we're only training the head
+        learning_rate=2e-4,  # Higher LR OK since we're only training the head
         weight_decay=0.01,
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         seed=RANDOM_SEED,
-        no_cuda=True,               # Explicit CPU — no CUDA scan in CI
-        report_to="none",           # Disable wandb/tensorboard in CI
+        no_cuda=True,  # Explicit CPU — no CUDA scan in CI
+        report_to="none",  # Disable wandb/tensorboard in CI
         logging_steps=50,
-        dataloader_num_workers=0,   # 0 workers in CI (no multiprocessing issues)
+        dataloader_num_workers=0,  # 0 workers in CI (no multiprocessing issues)
     )
 
     trainer = Trainer(

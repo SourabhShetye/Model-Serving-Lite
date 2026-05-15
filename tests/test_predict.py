@@ -19,7 +19,6 @@ Coverage targets:
   - Background task (DB write) is triggered — not awaited in tests
 """
 
-
 import pytest
 from tests.conftest import FakeRedis  # noqa: F401 — used in type hints
 from httpx import AsyncClient
@@ -28,12 +27,13 @@ from httpx import AsyncClient
 PREDICT_URL = "/predict/"
 POSITIVE_TEXT = "This product is absolutely great and I love it!"
 NEGATIVE_TEXT = "Complete disaster, terrible experience overall."
-NEUTRAL_TEXT  = "The item arrived in a box on Tuesday."
+NEUTRAL_TEXT = "The item arrived in a box on Tuesday."
 
 
 # ------------------------------------------------------------------ #
 # Happy Path                                                           #
 # ------------------------------------------------------------------ #
+
 
 class TestPredictHappyPath:
     @pytest.mark.asyncio
@@ -44,9 +44,18 @@ class TestPredictHappyPath:
     @pytest.mark.asyncio
     async def test_response_has_required_fields(self, client: AsyncClient):
         data = (await client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})).json()
-        required = {"request_id", "label", "confidence", "input_hash",
-                    "latency_ms", "model_name", "cache_hit"}
-        assert required.issubset(data.keys()), f"Missing fields: {required - data.keys()}"
+        required = {
+            "request_id",
+            "label",
+            "confidence",
+            "input_hash",
+            "latency_ms",
+            "model_name",
+            "cache_hit",
+        }
+        assert required.issubset(
+            data.keys()
+        ), f"Missing fields: {required - data.keys()}"
 
     @pytest.mark.asyncio
     async def test_positive_text_returns_positive_label(self, client: AsyncClient):
@@ -66,10 +75,12 @@ class TestPredictHappyPath:
     @pytest.mark.asyncio
     async def test_request_id_is_uuid_format(self, client: AsyncClient):
         import re
+
         data = (await client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})).json()
         uuid_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        assert re.match(uuid_pattern, data["request_id"]), \
-            f"request_id is not UUID format: {data['request_id']}"
+        assert re.match(
+            uuid_pattern, data["request_id"]
+        ), f"request_id is not UUID format: {data['request_id']}"
 
     @pytest.mark.asyncio
     async def test_input_hash_is_sha256(self, client: AsyncClient):
@@ -91,8 +102,9 @@ class TestPredictHappyPath:
         If a real model were used, latency would vary and likely be > 42ms.
         """
         data = (await client.post(PREDICT_URL, json={"text": NEGATIVE_TEXT})).json()
-        assert data["latency_ms"] == 42.0, \
-            "Expected mock model latency of 42.0ms — real model may have loaded"
+        assert (
+            data["latency_ms"] == 42.0
+        ), "Expected mock model latency of 42.0ms — real model may have loaded"
 
     @pytest.mark.asyncio
     async def test_same_input_produces_same_hash(self, client: AsyncClient):
@@ -120,6 +132,7 @@ class TestPredictHappyPath:
 # Caching                                                              #
 # ------------------------------------------------------------------ #
 
+
 class TestPredictCaching:
     @pytest.mark.asyncio
     async def test_first_request_is_cache_miss(self, client: AsyncClient, fake_redis):
@@ -128,7 +141,9 @@ class TestPredictCaching:
         assert data["cache_hit"] is False
 
     @pytest.mark.asyncio
-    async def test_second_identical_request_is_cache_hit(self, client: AsyncClient, fake_redis):
+    async def test_second_identical_request_is_cache_hit(
+        self, client: AsyncClient, fake_redis
+    ):
         fake_redis.clear()
         await client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})
         data = (await client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})).json()
@@ -142,14 +157,18 @@ class TestPredictCaching:
         assert r1["label"] == r2["label"]
 
     @pytest.mark.asyncio
-    async def test_cache_hit_returns_same_confidence(self, client: AsyncClient, fake_redis):
+    async def test_cache_hit_returns_same_confidence(
+        self, client: AsyncClient, fake_redis
+    ):
         fake_redis.clear()
         r1 = (await client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})).json()
         r2 = (await client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})).json()
         assert r1["confidence"] == r2["confidence"]
 
     @pytest.mark.asyncio
-    async def test_cache_hit_has_unique_request_id(self, client: AsyncClient, fake_redis):
+    async def test_cache_hit_has_unique_request_id(
+        self, client: AsyncClient, fake_redis
+    ):
         """Cache hits must still get a fresh request_id for log correlation."""
         fake_redis.clear()
         r1 = (await client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})).json()
@@ -157,14 +176,18 @@ class TestPredictCaching:
         assert r1["request_id"] != r2["request_id"]
 
     @pytest.mark.asyncio
-    async def test_different_texts_do_not_share_cache(self, client: AsyncClient, fake_redis):
+    async def test_different_texts_do_not_share_cache(
+        self, client: AsyncClient, fake_redis
+    ):
         fake_redis.clear()
         await client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})
         data = (await client.post(PREDICT_URL, json={"text": NEGATIVE_TEXT})).json()
         assert data["cache_hit"] is False
 
     @pytest.mark.asyncio
-    async def test_text_whitespace_stripped_before_hashing(self, client: AsyncClient, fake_redis):
+    async def test_text_whitespace_stripped_before_hashing(
+        self, client: AsyncClient, fake_redis
+    ):
         """
         Leading/trailing whitespace is stripped by the validator.
         '  great product  ' and 'great product' should share the same cache entry.
@@ -180,6 +203,7 @@ class TestPredictCaching:
 # No-Cache Mode (Redis unavailable)                                    #
 # ------------------------------------------------------------------ #
 
+
 class TestPredictNoCacheMode:
     @pytest.mark.asyncio
     async def test_predict_works_without_redis(self, no_cache_client: AsyncClient):
@@ -191,17 +215,27 @@ class TestPredictNoCacheMode:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    async def test_no_cache_response_has_correct_fields(self, no_cache_client: AsyncClient):
-        data = (await no_cache_client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})).json()
+    async def test_no_cache_response_has_correct_fields(
+        self, no_cache_client: AsyncClient
+    ):
+        data = (
+            await no_cache_client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})
+        ).json()
         assert "label" in data
         assert "confidence" in data
         assert data["cache_hit"] is False
 
     @pytest.mark.asyncio
-    async def test_no_cache_always_returns_cache_miss(self, no_cache_client: AsyncClient):
+    async def test_no_cache_always_returns_cache_miss(
+        self, no_cache_client: AsyncClient
+    ):
         """Without Redis, every request is a cache miss — model is always invoked."""
-        r1 = (await no_cache_client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})).json()
-        r2 = (await no_cache_client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})).json()
+        r1 = (
+            await no_cache_client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})
+        ).json()
+        r2 = (
+            await no_cache_client.post(PREDICT_URL, json={"text": POSITIVE_TEXT})
+        ).json()
         assert r1["cache_hit"] is False
         assert r2["cache_hit"] is False
 
@@ -209,6 +243,7 @@ class TestPredictNoCacheMode:
 # ------------------------------------------------------------------ #
 # Input Validation                                                     #
 # ------------------------------------------------------------------ #
+
 
 class TestPredictValidation:
     @pytest.mark.asyncio
@@ -269,6 +304,7 @@ class TestPredictValidation:
 # Response Headers                                                     #
 # ------------------------------------------------------------------ #
 
+
 class TestPredictHeaders:
     @pytest.mark.asyncio
     async def test_x_request_id_header_present(self, client: AsyncClient):
@@ -302,6 +338,7 @@ class TestPredictHeaders:
 # Drift Integration                                                    #
 # ------------------------------------------------------------------ #
 
+
 class TestPredictDriftIntegration:
     @pytest.mark.asyncio
     async def test_prediction_increments_drift_observations(self, client: AsyncClient):
@@ -314,13 +351,17 @@ class TestPredictDriftIntegration:
 
         # Send a prediction with a unique text (to avoid cache hit)
         import uuid
-        await client.post(PREDICT_URL, json={"text": f"Unique test text {uuid.uuid4()}"})
+
+        await client.post(
+            PREDICT_URL, json={"text": f"Unique test text {uuid.uuid4()}"}
+        )
 
         after = (await client.get("/drift/status")).json()
         obs_after = after["total_observations"]
 
-        assert obs_after == obs_before + 1, \
-            f"Expected total_observations to increment by 1: {obs_before} → {obs_after}"
+        assert (
+            obs_after == obs_before + 1
+        ), f"Expected total_observations to increment by 1: {obs_before} → {obs_after}"
 
     @pytest.mark.asyncio
     async def test_cache_hit_does_not_increment_drift_observations(
@@ -335,11 +376,16 @@ class TestPredictDriftIntegration:
 
         # First request: cache miss → drift records it
         await client.post(PREDICT_URL, json={"text": text})
-        obs_after_first = (await client.get("/drift/status")).json()["total_observations"]
+        obs_after_first = (await client.get("/drift/status")).json()[
+            "total_observations"
+        ]
 
         # Second request: cache hit → drift should NOT record it
         await client.post(PREDICT_URL, json={"text": text})
-        obs_after_second = (await client.get("/drift/status")).json()["total_observations"]
+        obs_after_second = (await client.get("/drift/status")).json()[
+            "total_observations"
+        ]
 
-        assert obs_after_first == obs_after_second, \
-            "Cache hit should not increment drift total_observations"
+        assert (
+            obs_after_first == obs_after_second
+        ), "Cache hit should not increment drift total_observations"
