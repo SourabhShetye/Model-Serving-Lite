@@ -151,7 +151,7 @@ class TestLengthDrift:
         svc._emit_alerts = lambda r: alerts_fired.extend(r.alerts)
 
         for _ in range(10):
-            svc.record(text="Short text here.", confidence=0.95)
+            svc.record(text="This is great!", confidence=0.95)
 
         length_alerts = [
             a for a in alerts_fired if a.signal == DriftSignal.INPUT_LENGTH
