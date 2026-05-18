@@ -84,61 +84,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-# ================================================================== #
-# HuggingFace Spaces: non-root user with UID 1000                     #
-# ================================================================== #
+# 1. Create the non-root user
 RUN useradd -m -u 1000 user
-
-# ================================================================== #
-# Copy artifacts from builder stages                                  #
-# ================================================================== #
-COPY --from=builder /venv /venv
-COPY --from=model-fetcher ${MODEL_CACHE_DIR} ${MODEL_CACHE_DIR}
-
-# ================================================================== #
-# HuggingFace Spaces: HOME and PATH setup                             #
-# ================================================================== #
 ENV HOME=/home/user \
-    PATH=/home/user/.local/bin:$PATH \
-    PYTHONPATH="${HOME}/app" \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    TRANSFORMERS_CACHE=${MODEL_CACHE_DIR} \
-    HF_HOME=${MODEL_CACHE_DIR} \
-    TRANSFORMERS_OFFLINE=1 \
-    MODEL_NAME=${MODEL_NAME} \
-    MODEL_CACHE_DIR=${MODEL_CACHE_DIR} \
-    ENVIRONMENT=production \
-    LOG_LEVEL=INFO
+    PATH=/home/user/.local/bin:$PATH
 
-# ================================================================== #
-# HuggingFace Spaces: working directory and app code                  #
-# ================================================================== #
-WORKDIR ${HOME}/app
-COPY --chown=user . ${HOME}/app
+WORKDIR $HOME/app
 
-# ================================================================== #
-# Ownership of model cache                                             #
-# ================================================================== #
-RUN chown -R user:user ${MODEL_CACHE_DIR}
+# 2. Copy application files and grant ownership to the user
+COPY --chown=user . $HOME/app
 
-# ================================================================== #
-# Switch to non-root user                                              #
-# ================================================================== #
+# 3. Switch to the non-root user BEFORE running pip
 USER user
 
-# ================================================================== #
-# HuggingFace Spaces: port 7860                                        #
-# ================================================================== #
+# 4. Install requirements directly into the user's local path
+RUN pip install --no-cache-dir --user -r requirements.txt
+
+# 5. Expose port and start the app
 EXPOSE 7860
-
-# ================================================================== #
-# Health check                                                         #
-# ================================================================== #
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD curl -f http://localhost:7860/ready || exit 1
-
-# ================================================================== #
-# Entrypoint: Listen on 0.0.0.0:7860 for HuggingFace Spaces          #
-# ================================================================== #
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "1"]
