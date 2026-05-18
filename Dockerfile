@@ -141,9 +141,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
 # ================================================================== #
 # Entrypoint: Listen on 0.0.0.0:7860 for HuggingFace Spaces          #
 # ================================================================== #
-CMD ["uvicorn", "app.main:app", \
-     "--host", "0.0.0.0", \
-     "--port", "7860", \
-     "--workers", "1", \
-     "--loop", "uvloop", \
-     "--log-level", "warning"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860", "--workers", "1"]
