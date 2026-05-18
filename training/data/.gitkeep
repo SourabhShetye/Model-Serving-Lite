@@ -1,0 +1,29 @@
+# training/data/
+#
+# This directory holds labelled training and evaluation data.
+# It is intentionally excluded from version control via .gitignore
+# (real datasets may contain PII or be too large for git).
+#
+# Expected file conventions:
+#
+#   train_*.csv   — Training data (used by training/train.py)
+#   test_*.csv    — Held-out evaluation data (used by training/evaluate.py)
+#
+# Required CSV format (header row mandatory):
+#
+#   text,label
+#   "This product is wonderful!",1
+#   "Completely disappointed.",0
+#
+#   label: 1 = POSITIVE, 0 = NEGATIVE
+#
+# How to populate for a real retrain:
+#   1. Export labelled examples to train_v2.csv and test_v2.csv
+#   2. Place them in this directory
+#   3. Open a PR — the retrain.yml workflow fires automatically
+#      on any change to training/data/**
+#
+# If no CSV files are present, train.py and evaluate.py fall back
+# to a small synthetic dataset so the CI pipeline can always run.
+# Synthetic data is only suitable for pipeline validation, not
+# real model quality assessment.

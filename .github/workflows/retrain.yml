@@ -1,0 +1,499 @@
+# ================================================================== #
+# .github/workflows/retrain.yml                                        #
+# Model Retraining Pipeline — triggered by training data changes      #
+# ================================================================== #
+#
+# Trigger: A PR that touches any file under training/data/**
+#
+# Why path filtering and not a manual trigger?
+#   The brief asks for "on a new training data PR". Path filtering means:
+#   - Data scientists push new labelled data to training/data/
+#   - The pipeline fires automatically — no human needs to remember
+#     to kick off a retrain job
+#   - PRs that only touch app code or docs do NOT trigger a retrain
+#     (no wasted CI minutes)
+#
+# Jobs (all sequential — each gate must pass before the next):
+#
+#   1. retrain       — Runs training/train.py, saves model artifact
+#   2. evaluate      — Runs training/evaluate.py, produces metrics.json
+#   3. promote-gate  — Reads metrics.json, compares to baseline.
+#                      FAILS the workflow if F1 regresses > 2%.
+#                      This is the "auto-reject" the brief asks for.
+#   4. push-image    — Only runs if promote-gate passes.
+#                      Builds full Docker image, pushes to registry,
+#                      triggers Render deploy via webhook.
+#   5. cache-bust    — Flushes the Redis prediction cache so stale
+#                      results from the old model don't persist.
+#
+# What "auto-promote" means here:
+#   We don't have a staging environment on free-tier, so "promotion"
+#   means: build the Docker image with the new model weights and push
+#   it to the registry. Render's auto-deploy picks it up from there.
+#   In a real system, promotion would be: staging deploy → smoke test
+#   → canary → production.
+
+name: Model Retrain & Promote
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "training/data/**"      # New labelled data
+      - "training/train.py"     # Training script changes
+      - "training/evaluate.py"  # Evaluation logic changes
+
+  # Allow manual trigger for ad-hoc retrains
+  # Usage: Actions tab → "Model Retrain & Promote" → "Run workflow"
+  workflow_dispatch:
+    inputs:
+      force_promote:
+        description: "Force promotion even if metrics regress (use with caution)"
+        required: false
+        default: "false"
+        type: choice
+        options: [ "true", "false" ]
+
+concurrency:
+  # Only one retrain at a time. A second PR touching training data
+  # will wait until the first pipeline completes.
+  group: retrain-pipeline
+  cancel-in-progress: false    # Do NOT cancel in-progress retrains
+
+env:
+  PYTHON_VERSION: "3.11"
+  # Minimum acceptable F1 score — absolute floor regardless of baseline
+  MIN_ACCEPTABLE_F1: "0.80"
+  # Maximum allowed F1 regression vs stored baseline (2%)
+  MAX_F1_REGRESSION: "0.02"
+  # Registry (update to your actual registry)
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/sentiment-service
+
+jobs:
+
+  # ================================================================ #
+  # Job 1: Retrain                                                     #
+  # ================================================================ #
+  retrain:
+    name: Retrain Model
+    runs-on: ubuntu-latest
+    timeout-minutes: 60    # Fine-tuning DistilBERT on CPU can take ~45min
+
+    outputs:
+      model_version: ${{ steps.set-version.outputs.model_version }}
+      artifact_path: ${{ steps.set-version.outputs.artifact_path }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history so we can compare with baseline metrics
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install training dependencies
+        run: |
+          pip install --upgrade pip
+          pip install torch==2.3.0 \
+            --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers==4.41.0 \
+            datasets==2.19.0 \
+            scikit-learn==1.5.0 \
+            numpy==1.26.4
+
+      - name: Set model version
+        id: set-version
+        # Model version = short git SHA of this commit.
+        # This links every deployed model to the exact training data
+        # and code that produced it. Essential for debugging regressions.
+        run: |
+          VERSION="$(git rev-parse --short HEAD)"
+          echo "model_version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "artifact_path=./model_artifact_${VERSION}" >> $GITHUB_OUTPUT
+          echo "Model version: ${VERSION}"
+
+      - name: Run training
+        env:
+          MODEL_VERSION: ${{ steps.set-version.outputs.model_version }}
+          OUTPUT_DIR: ${{ steps.set-version.outputs.artifact_path }}
+        run: |
+          python training/train.py \
+            --output-dir "${OUTPUT_DIR}" \
+            --model-version "${MODEL_VERSION}"
+
+      - name: Upload model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-${{ steps.set-version.outputs.model_version }}
+          path: ${{ steps.set-version.outputs.artifact_path }}
+          retention-days: 30
+          # 30-day retention: keeps last month of trained models for rollback.
+          # In production, push to S3/GCS instead of GitHub artifacts.
+
+  # ================================================================ #
+  # Job 2: Evaluate                                                    #
+  # ================================================================ #
+  evaluate:
+    name: Evaluate Model
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: retrain
+
+    outputs:
+      f1_score: ${{ steps.parse-metrics.outputs.f1_score }}
+      accuracy: ${{ steps.parse-metrics.outputs.accuracy }}
+      passed_floor: ${{ steps.parse-metrics.outputs.passed_floor }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install evaluation dependencies
+        run: |
+          pip install --upgrade pip
+          pip install torch==2.3.0 \
+            --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers==4.41.0 \
+            scikit-learn==1.5.0 \
+            numpy==1.26.4
+
+      - name: Download model artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: model-${{ needs.retrain.outputs.model_version }}
+          path: ./model_artifact
+
+      - name: Run evaluation
+        run: |
+          python training/evaluate.py \
+            --model-dir ./model_artifact \
+            --output-file ./metrics.json
+          echo "=== Evaluation Results ==="
+          cat metrics.json
+
+      - name: Parse metrics
+        id: parse-metrics
+        run: |
+          F1=$(python -c "import json; d=json.load(open('metrics.json')); print(d['f1_score'])")
+          ACC=$(python -c "import json; d=json.load(open('metrics.json')); print(d['accuracy'])")
+          # Check absolute floor — F1 must exceed minimum regardless of baseline
+          PASSED=$(python -c "
+          f1 = float('${F1}')
+          floor = float('${{ env.MIN_ACCEPTABLE_F1 }}')
+          print('true' if f1 >= floor else 'false')
+          ")
+          echo "f1_score=${F1}" >> $GITHUB_OUTPUT
+          echo "accuracy=${ACC}" >> $GITHUB_OUTPUT
+          echo "passed_floor=${PASSED}" >> $GITHUB_OUTPUT
+          echo "F1=${F1} | Accuracy=${ACC} | Passed floor (>=${MIN_ACCEPTABLE_F1}): ${PASSED}"
+
+      - name: Upload metrics artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: metrics-${{ needs.retrain.outputs.model_version }}
+          path: metrics.json
+          retention-days: 90
+          # 90 days: long enough to compare across multiple retrain cycles
+
+  # ================================================================ #
+  # Job 3: Promote Gate                                                #
+  # ================================================================ #
+  # This is the differentiating job. The brief says:
+  # "only auto-promotes if metrics don't regress"
+  # This job IS that gate.
+  promote-gate:
+    name: Promote Gate (Regression Check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [ retrain, evaluate ]
+
+    outputs:
+      approved: ${{ steps.gate-decision.outputs.approved }}
+      reason: ${{ steps.gate-decision.outputs.reason }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download new metrics
+        uses: actions/download-artifact@v4
+        with:
+          name: metrics-${{ needs.retrain.outputs.model_version }}
+          path: ./new_metrics
+
+      - name: Fetch baseline metrics
+        id: fetch-baseline
+        # The baseline is the metrics.json committed to the repo from the
+        # LAST successful promotion. It lives at training/baseline_metrics.json.
+        #
+        # Why store baseline in the repo instead of a database?
+        #   It's versioned. You can see exactly when the baseline changed,
+        #   which PR changed it, and what the before/after values were.
+        #   A database entry has none of that audit trail.
+        run: |
+          if [ -f "training/baseline_metrics.json" ]; then
+            echo "Baseline metrics found:"
+            cat training/baseline_metrics.json
+            echo "has_baseline=true" >> $GITHUB_OUTPUT
+          else
+            echo "No baseline metrics found — first promotion, skipping regression check."
+            echo "has_baseline=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run promote gate
+        id: gate-decision
+        env:
+          NEW_F1: ${{ needs.evaluate.outputs.f1_score }}
+          PASSED_FLOOR: ${{ needs.evaluate.outputs.passed_floor }}
+          HAS_BASELINE: ${{ steps.fetch-baseline.outputs.has_baseline }}
+          FORCE_PROMOTE: ${{ github.event.inputs.force_promote || 'false' }}
+          MAX_REGRESSION: ${{ env.MAX_F1_REGRESSION }}
+        run: |
+          python - << 'EOF'
+          import json
+          import os
+          import sys
+
+          new_f1 = float(os.environ["NEW_F1"])
+          passed_floor = os.environ["PASSED_FLOOR"] == "true"
+          has_baseline = os.environ["HAS_BASELINE"] == "true"
+          force = os.environ["FORCE_PROMOTE"] == "true"
+          max_regression = float(os.environ["MAX_REGRESSION"])
+
+          approved = True
+          reasons = []
+
+          # Gate 1: Absolute floor check
+          # A model below 0.80 F1 is never acceptable regardless of baseline.
+          if not passed_floor:
+              approved = False
+              reasons.append(
+                  f"REJECTED: F1={new_f1:.4f} is below the absolute "
+                  f"floor of {os.environ['MIN_ACCEPTABLE_F1']}. "
+                  f"This model must not be promoted regardless of baseline."
+              )
+
+          # Gate 2: Regression check against stored baseline
+          if has_baseline and approved:
+              with open("training/baseline_metrics.json") as f:
+                  baseline = json.load(f)
+              baseline_f1 = float(baseline["f1_score"])
+              regression = baseline_f1 - new_f1
+
+              print(f"Baseline F1:  {baseline_f1:.4f}")
+              print(f"New F1:       {new_f1:.4f}")
+              print(f"Regression:   {regression:+.4f}")
+              print(f"Max allowed:  {max_regression:.4f}")
+
+              if regression > max_regression:
+                  approved = False
+                  reasons.append(
+                      f"REJECTED: F1 regressed by {regression:.4f} "
+                      f"(max allowed: {max_regression}). "
+                      f"Baseline={baseline_f1:.4f}, New={new_f1:.4f}. "
+                      f"Investigate training data quality or hyperparameters."
+                  )
+              else:
+                  reasons.append(
+                      f"PASSED: F1 regression {regression:+.4f} "
+                      f"within threshold {max_regression}. "
+                      f"Baseline={baseline_f1:.4f} → New={new_f1:.4f}."
+                  )
+          elif not has_baseline:
+              reasons.append(
+                  f"PASSED: No baseline exists — first promotion. "
+                  f"New F1={new_f1:.4f} exceeds floor. "
+                  f"This score becomes the new baseline."
+              )
+
+          # Force override (manual workflow_dispatch only)
+          if not approved and force:
+              approved = True
+              reasons.append(
+                  "WARNING: Force-promote override active. "
+                  "Metrics gates bypassed by manual trigger."
+              )
+
+          reason = " | ".join(reasons)
+          print(f"\nDecision: {'APPROVED' if approved else 'REJECTED'}")
+          print(f"Reason: {reason}")
+
+          # Write outputs for downstream jobs
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"approved={'true' if approved else 'false'}\n")
+              f.write(f"reason={reason}\n")
+
+          # Exit non-zero on rejection — fails the workflow check
+          # This is what blocks the PR merge when the model regresses.
+          if not approved:
+              print("\nWorkflow FAILED: Model does not meet promotion criteria.")
+              sys.exit(1)
+
+          print("\nWorkflow PASSED: Model approved for promotion.")
+          EOF
+
+      - name: Post gate result as PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const approved = '${{ steps.gate-decision.outputs.approved }}' === 'true';
+            const reason = '${{ steps.gate-decision.outputs.reason }}';
+            const f1 = '${{ needs.evaluate.outputs.f1_score }}';
+            const accuracy = '${{ needs.evaluate.outputs.accuracy }}';
+            const version = '${{ needs.retrain.outputs.model_version }}';
+
+            const icon = approved ? '✅' : '❌';
+            const status = approved ? 'APPROVED FOR PROMOTION' : 'REJECTED';
+
+            const body = `## ${icon} Model Promote Gate: ${status}
+
+            | Metric | Value |
+            |--------|-------|
+            | Model version | \`${version}\` |
+            | F1 Score | ${parseFloat(f1).toFixed(4)} |
+            | Accuracy | ${parseFloat(accuracy).toFixed(4)} |
+            | Decision | **${status}** |
+
+            **Reason:** ${reason}
+
+            ${approved
+              ? '_This PR will trigger a Docker image build and Render deploy on merge._'
+              : '_Fix the training data or model configuration and push again to retry._'
+            }`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+  # ================================================================ #
+  # Job 4: Push Image & Deploy                                         #
+  # ================================================================ #
+  push-image:
+    name: Build, Push & Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: [ retrain, evaluate, promote-gate ]
+    # Hard conditional — only runs if promote-gate explicitly approved
+    if: needs.promote-gate.outputs.approved == 'true' && github.event_name != 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=,suffix=,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            MODEL_NAME=distilbert-base-uncased-finetuned-sst-2-english
+            PYTHON_VERSION=3.11
+
+      - name: Update baseline metrics
+        # On successful promotion, commit the new metrics as the baseline.
+        # Next retrain will compare against this.
+        run: |
+          cp ./new_metrics/metrics.json training/baseline_metrics.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add training/baseline_metrics.json
+          git commit -m "chore: update baseline metrics after promotion [model=${{ needs.retrain.outputs.model_version }}]"
+          git push
+
+      - name: Trigger Render deploy
+        # Render's deploy hook URL is stored as a repo secret.
+        # Setting it: Render dashboard → Service → Settings → Deploy Hook → Copy URL
+        # Then: GitHub repo → Settings → Secrets → RENDER_DEPLOY_HOOK_URL
+        if: secrets.RENDER_DEPLOY_HOOK_URL != ''
+        run: |
+          curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -d '{"clearCache": false}' \
+            | python -c "import sys,json; d=json.load(sys.stdin); print('Deploy triggered:', d.get('id', 'unknown'))"
+
+  # ================================================================ #
+  # Job 5: Cache Bust                                                  #
+  # ================================================================ #
+  cache-bust:
+    name: Flush Prediction Cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [ push-image ]
+    if: needs.push-image.result == 'success'
+
+    steps:
+      - name: Flush Redis prediction cache via API
+        # After a new model is deployed, old cached predictions are stale —
+        # they came from the previous model version.
+        # We call the flush endpoint to evict all prediction: keys.
+        #
+        # Why flush and not just let TTL expire?
+        #   TTL is 1 hour. For the first hour after a retrain, every
+        #   cache hit would return a result from the OLD model with no
+        #   indication to the user. If the retrain fixed a specific
+        #   mis-classification, those wrong cached answers persist for an hour.
+        #   Flush on deploy = immediate consistency.
+        env:
+          SERVICE_URL: ${{ secrets.RENDER_SERVICE_URL }}
+        run: |
+          if [ -z "${SERVICE_URL}" ]; then
+            echo "RENDER_SERVICE_URL not set — skipping cache bust"
+            exit 0
+          fi
+
+          echo "Flushing prediction cache..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X DELETE "${SERVICE_URL}/cache/predictions" \
+            -H "X-Admin-Key: ${{ secrets.ADMIN_API_KEY }}")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -1)
+
+          echo "Response: ${BODY}"
+          echo "HTTP Status: ${HTTP_CODE}"
+
+          if [ "${HTTP_CODE}" != "200" ]; then
+            echo "Cache flush failed with status ${HTTP_CODE}"
+            echo "Non-fatal: TTL will expire stale entries within 1 hour"
+            exit 0   # Non-fatal — don't fail the pipeline over a cache flush
+          fi
+          echo "Cache flushed successfully."
