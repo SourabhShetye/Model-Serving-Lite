@@ -40,7 +40,7 @@ from app.config import get_settings
 from app.middleware.logging_middleware import StructuredLoggingMiddleware
 from app.db.crud import create_tables, check_connection
 from app.routers import health, predict, drift
-from app.services.model_service import ModelService
+from app.services.model_service import ModelService, load_pipeline
 
 # Limit PyTorch memory overhead
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -152,12 +152,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.db_available = False
 
     # ---------------------------------------------------------------- #
-    # 3. Initialize model service (no loading needed)                   #
+    # 3. Initialize model service with the HuggingFace pipeline         #
     # ---------------------------------------------------------------- #
-    # TextBlob requires no initialization. It uses a pre-shipped lexicon.
-    # Instantiation is instant and memory-safe.
     try:
-        app.state.model_service = ModelService()
+        pipe = load_pipeline()
+        app.state.model_service = ModelService(pipe)
         logger.info("Application ready to serve traffic")
     except Exception as exc:
         logger.critical(
