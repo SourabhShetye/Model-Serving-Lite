@@ -27,6 +27,8 @@ Shutdown sequence (yield resumes):
 
 import logging
 import time
+import os
+import torch
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -39,6 +41,11 @@ from app.middleware.logging_middleware import StructuredLoggingMiddleware
 from app.db.crud import create_tables, check_connection
 from app.routers import health, predict, drift
 from app.services.model_service import ModelService, load_pipeline
+
+# Limit PyTorch memory overhead
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+torch.set_num_threads(1)
 
 settings = get_settings()
 

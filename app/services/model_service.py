@@ -20,6 +20,7 @@ import hashlib
 import logging
 import time
 import os
+import gc
 
 from dataclasses import dataclass
 
@@ -91,6 +92,7 @@ def load_pipeline() -> Pipeline:
         device=-1,
         top_k=1,
     )
+    gc.collect()
     elapsed = (time.perf_counter() - t0) * 1000
 
     logger.info(
