@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # Why store this in config and not hardcode it?
     # So the CI retrain pipeline can point to a newly trained model
     # by changing one env var — no code changes needed.
-    model_name: str = "distilbert-base-uncased-finetuned-sst-2-english"
+    model_name: str = "philschmid/tiny-bert-sst2-distilled"
     model_cache_dir: str = "/tmp/hf_cache"
 
     # ------------------------------------------------------------------ #
