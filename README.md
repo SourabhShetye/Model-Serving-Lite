@@ -1,10 +1,7 @@
-**Live demo:** [Insert your Render/HF Spaces URL here]
-**Repo:** [Insert your GitHub URL here]
-**Demo video:** [Insert your Loom/YouTube video link here]
+**Live demo:** https://sourabhshetye04-model-serving-lite.hf.space/docs
+**Repo:** https://github.com/SourabhShetye/Model-Serving-Lite
 
 > A production-ready, monitored FastAPI service for real-time sentiment analysis using HuggingFace.
-
-![Screenshot](https://via.placeholder.com/800x400.png?text=Dashboard+Screenshot+Placeholder)
 
 ## How to run locally
 1. `git clone <repo>`
