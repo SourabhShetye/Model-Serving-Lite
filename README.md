@@ -12,7 +12,6 @@ pinned: false
 
 **Repo:** https://github.com/SourabhShetye/Model-Serving-Lite
 
-
 > A production-ready, monitored FastAPI service for real-time sentiment analysis using HuggingFace.
 
 ## How to run locally
