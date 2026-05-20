@@ -81,22 +81,13 @@ ModelServiceDep = Annotated[ModelService, Depends(get_model_service)]
 
 async def get_redis(request: Request) -> aioredis.Redis | None:
     """
-    Returns the async Redis client from app.state, or None if Redis
-    is unavailable or cache is disabled.
-
-    Why return None instead of raising?
-      Cache is an optimisation, not a hard dependency. If Redis goes
-      down, we want predictions to keep working — just slower.
-      Returning None lets callers do: `if redis_client: ...`
-      without try/except blocks in every route.
-
-    This is the "fail open" vs "fail closed" decision. For a cache,
-    fail open is almost always right. For auth, fail closed.
+    Returns the async Redis-like client from app.state (real Redis or
+    an in-memory fallback). If the client is missing, returns None and
+    the route logic will treat caching as disabled for the request.
     """
-    settings = get_settings()
-    if not settings.cache_enabled:
-        return None
-
+    # Note: we deliberately do NOT short-circuit on settings.cache_enabled
+    # so that an in-memory fallback can be provided for demos where
+    # Redis is unavailable or caching is intentionally toggled off.
     redis_client: aioredis.Redis | None = getattr(
         request.app.state, "redis_client", None
     )
