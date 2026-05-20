@@ -48,7 +48,7 @@ class InMemoryRedis:
             return None
         return value
 
-    async def setex(self, key: str, ttl: int, value: str) -> None:
+    async def setex(self, key: str, ttl: int | None, value: str) -> None:
         expiry = None if ttl is None or ttl <= 0 else (time.time() + float(ttl))
         self._store[key] = (value, expiry)
 
@@ -60,7 +60,12 @@ class InMemoryRedis:
                 deleted += 1
         return deleted
 
-    async def scan(self, cursor: int = 0, match: str = "*", count: int = 100):
+    async def scan(
+        self,
+        cursor: int = 0,
+        match: str = "*",
+        count: int = 100,
+    ) -> tuple[int, list[str]]:
         # Simplified: return all matching keys in a single pass and signal done
         now = time.time()
         keys: List[str] = []

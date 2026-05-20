@@ -98,4 +98,4 @@ async def get_redis(request: Request) -> aioredis.Redis | InMemoryRedis:
     return redis_client
 
 
-RedisDep = Annotated[aioredis.Redis | InMemoryRedis, Depends(get_redis)]
+RedisDep = Annotated[aioredis.Redis | InMemoryRedis | None, Depends(get_redis)]

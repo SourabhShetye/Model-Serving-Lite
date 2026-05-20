@@ -28,10 +28,12 @@ this would connect to a proper feature store (Feast, Tecton) with:
 For this service, Redis with SHA-256 keys is the right level of complexity.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol, runtime_checkable
 
 import redis.asyncio as aioredis
 
@@ -54,6 +56,31 @@ class CachedPrediction:
     model_name: str
 
 
+class RedisClient(Protocol):
+    async def ping(self) -> bool:
+        ...
+
+    async def get(self, key: str) -> str | None:
+        ...
+
+    async def setex(self, key: str, ttl: int, value: str) -> object:
+        ...
+
+    async def delete(self, *keys: str) -> int:
+        ...
+
+    async def scan(
+        self,
+        cursor: int = 0,
+        match: str = "*",
+        count: int = 100,
+    ) -> tuple[int, list[str]]:
+        ...
+
+    async def aclose(self) -> None:
+        ...
+
+
 class CacheService:
     """
     Async Redis cache wrapper.
@@ -70,7 +97,7 @@ class CacheService:
         await cache.set(input_hash, result)
     """
 
-    def __init__(self, client: aioredis.Redis) -> None:
+    def __init__(self, client: RedisClient) -> None:
         self._client = client
         self._ttl = settings.cache_ttl_seconds
 
