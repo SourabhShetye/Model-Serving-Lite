@@ -10,7 +10,7 @@ pinned: false
 
 **Live demo:** https://sourabhshetye04-model-serving-lite.hf.space/docs#/inference/predict
 
-**Repo:** https://github.com/SourabhShetye04/Model-Serving-Lite
+**Repo:** https://github.com/SourabhShetye/Model-Serving-Lite
 
 
 > A production-ready, monitored FastAPI service for real-time sentiment analysis using HuggingFace.
