@@ -109,9 +109,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.startup_time = time.time()
 
     # ---------------------------------------------------------------- #
-    # 1. Connect to Redis                                               #
+    # 1. Connect to Redis (or fall back to an in-memory cache)         #
     # ---------------------------------------------------------------- #
     redis_client = None
+    # Import the in-memory fallback locally to avoid a top-level dependency
+    # when a real aioredis client is used.
+    from app.services.in_memory_cache import InMemoryRedis
+
     if settings.cache_enabled:
         try:
             redis_client = aioredis.from_url(
@@ -125,15 +129,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.redis_client = redis_client
             logger.info("Redis connected", extra={"url": settings.redis_url})
         except Exception as exc:
-            # Non-fatal: log and continue without cache
+            # Non-fatal: fallback to an in-memory cache so the service can
+            # still demonstrate caching without a real Redis instance.
             logger.warning(
-                "Redis connection failed — cache disabled",
+                "Redis connection failed — falling back to in-memory cache",
                 extra={"url": settings.redis_url, "error": str(exc)},
             )
-            app.state.redis_client = None
+            app.state.redis_client = InMemoryRedis()
+            logger.info("In-memory cache initialized (fallback)")
     else:
-        app.state.redis_client = None
-        logger.info("Cache disabled by config (CACHE_ENABLED=false)")
+        # For demo purposes we still provide an in-memory cache instead of
+        # disabling caching entirely. This allows the app to show cache
+        # behaviour even when CACHE_ENABLED=false in the environment.
+        app.state.redis_client = InMemoryRedis()
+        logger.info("In-memory cache enabled via config (CACHE_ENABLED=false)")
 
     # ---------------------------------------------------------------- #
     # 2. Initialise database tables                                     #
@@ -152,22 +161,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.db_available = False
 
     # ---------------------------------------------------------------- #
-    # 3. Load model (blocking — intentional)                            #
+    # 3. Initialize model service with the HuggingFace pipeline         #
     # ---------------------------------------------------------------- #
-    # The /ready endpoint returns 503 until this completes.
-    # Render's health check will hold traffic until we return 200.
-    # This is correct behaviour — we don't want to serve requests before
-    # the model is in memory.
     try:
         pipe = load_pipeline()
         app.state.model_service = ModelService(pipe)
         logger.info("Application ready to serve traffic")
     except Exception as exc:
         logger.critical(
-            "Failed to load model — cannot start",
-            extra={"model_name": settings.model_name, "error": str(exc)},
+            "Failed to initialize model service — cannot start",
+            extra={"error": str(exc)},
         )
-        # Re-raise: a failed model load is unrecoverable. Crash loudly.
+        # Re-raise: initialization failure is unrecoverable. Crash loudly.
         raise
 
     # ---------------------------------------------------------------- #
@@ -179,9 +184,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Shutdown (after yield)                                            #
     # ---------------------------------------------------------------- #
     logger.info("Shutting down")
-    if redis_client is not None:
-        await redis_client.aclose()
-        logger.info("Redis connection closed")
+    # Close the client if it exposes an aclose coroutine.
+    client = getattr(app.state, "redis_client", None)
+    if client is not None:
+        aclose = getattr(client, "aclose", None)
+        if aclose is not None:
+            await aclose()
+            logger.info("Redis connection closed")
 
 
 # ------------------------------------------------------------------ #

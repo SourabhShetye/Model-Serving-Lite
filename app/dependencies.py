@@ -24,6 +24,7 @@ import redis.asyncio as aioredis
 from fastapi import Depends, Request
 
 from app.config import Settings, get_settings
+from app.services.in_memory_cache import InMemoryRedis
 from app.services.model_service import ModelService
 
 logger = logging.getLogger(__name__)
@@ -79,30 +80,22 @@ ModelServiceDep = Annotated[ModelService, Depends(get_model_service)]
 # ------------------------------------------------------------------ #
 
 
-async def get_redis(request: Request) -> aioredis.Redis | None:
+async def get_redis(request: Request) -> aioredis.Redis | InMemoryRedis:
     """
-    Returns the async Redis client from app.state, or None if Redis
-    is unavailable or cache is disabled.
-
-    Why return None instead of raising?
-      Cache is an optimisation, not a hard dependency. If Redis goes
-      down, we want predictions to keep working — just slower.
-      Returning None lets callers do: `if redis_client: ...`
-      without try/except blocks in every route.
-
-    This is the "fail open" vs "fail closed" decision. For a cache,
-    fail open is almost always right. For auth, fail closed.
+    Returns the async Redis-like client from app.state (real Redis or
+    an in-memory fallback). If it is missing, create one once and store
+    it on app.state so it persists across requests in this process.
     """
-    settings = get_settings()
-    if not settings.cache_enabled:
-        return None
+    redis_client = getattr(request.app.state, "redis_client", None)
 
-    redis_client: aioredis.Redis | None = getattr(
-        request.app.state, "redis_client", None
-    )
     if redis_client is None:
-        logger.warning("Redis client not available — cache disabled for this request")
+        logger.warning(
+            "Redis client not available in app.state — creating in-memory fallback"
+        )
+        redis_client = InMemoryRedis()
+        request.app.state.redis_client = redis_client
+
     return redis_client
 
 
-RedisDep = Annotated[aioredis.Redis | None, Depends(get_redis)]
+RedisDep = Annotated[aioredis.Redis | InMemoryRedis, Depends(get_redis)]
